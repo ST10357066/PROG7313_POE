@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/navigation_expenses"
+        android:icon="@drawable/ic_expenses"
+        android:title="@string/expenses"
+        android:textColor="#FFFFFF" />
+    <item
+        android:id="@+id/navigation_budget"
+        android:icon="@drawable/ic_budget"
+        android:title="@string/budget"
+        android:textColor="#FFFFFF" />
+    <item
+        android:id="@+id/navigation_home"
+        android:icon="@drawable/ic_home"
+        android:title="@string/home"
+        android:textColor="#FFFFFF" />
+    <item
+        android:id="@+id/navigation_advices"
+        android:icon="@drawable/ic_advices"
+        android:title="@string/advices"
+        android:textColor="#FFFFFF" />
+    <item
+        android:id="@+id/navigation_more"
+        android:icon="@drawable/ic_more"
+        android:title="@string/more"
+        android:textColor="#FFFFFF" />
+</menu>
