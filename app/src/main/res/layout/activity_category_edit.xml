@@ -5,6 +5,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:id="@+id/main"
+    tools:context=".category.CategoryEditActivity"
     android:background="#E8F5E9">
 
     <LinearLayout
@@ -130,14 +132,14 @@
     </LinearLayout>
 
 
-    <!-- Bottom Navigation-->
+    <!-- Bottom Navigation -->
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNavigationView"
-        android:layout_width="0dp"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="#A29898"
-        app:itemIconTint="#000000"
-        app:itemTextColor="#000000"
+        android:background="#002117"
+        app:itemIconTint="#707974"
+        app:itemTextColor="#707974"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.0"

@@ -41,4 +41,10 @@
     <string name="amount">Amount</string>
     <string name="create_expense">Create Expense</string>
     <string name="view_ex">View Ex...</string>
+    <string name="welcome" />
+    <string name="username_or_email" />
+    <string name="password" />
+    <string name="forgot_password" />
+    <string name="login" />
+    <string name="sign_up" />
 </resources>
