@@ -1,0 +1,32 @@
+<!-- visualizer\templates\dashboard.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Bot Dashboard</title>
+</head>
+<body>
+    <h1>Trading Bot Dashboard</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <p class="{{ category }}">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    <h2>Stats</h2>
+    <pre>{{ stats | tojson }}</pre>
+    <h2>Deploy Live Bot</h2>
+    <form method="post" action="{{ url_for('deploy_live') }}">
+        <label>Bot ID: <input type="number" name="bot_id"></label><br>
+        <label>Risk Level:
+            <select name="risk">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+            </select>
+        </label><br>
+        <label>Live Mode: <input type="checkbox" name="live_mode" value="true"></label><br>
+        <button type="submit">Deploy</button>
+    </form>
+</body>
+</html>

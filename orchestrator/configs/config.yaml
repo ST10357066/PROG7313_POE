@@ -1,0 +1,9 @@
+# orchestrator/configs/config.yaml
+model:
+  name: distilgpt2
+  max_length: 100
+server:
+  host: "0.0.0.0"
+  port: ${ORCHESTRATOR_PORT}
+kernel:
+  interval: 60

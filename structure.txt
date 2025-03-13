@@ -1,0 +1,1131 @@
+.
+├── .env
+├── requirements.txt
+├── docker-compose.yml
+├── builder_bot/
+│   ├── Dockerfile
+│   └── builder_bot.py
+├── trainer_bot/
+│   ├── Dockerfile
+│   └── trainer_bot.py
+├── tester_bot/
+│   ├── Dockerfile
+│   └── tester_bot.py
+├── stats_bot/
+│   ├── Dockerfile
+│   └── stats_bot.py
+├── packaging_deployment/
+│   ├── Dockerfile
+│   └── packaging_deployment.py
+├── cleanup/
+│   ├── Dockerfile
+│   └── cleanup.py
+├── visualizer/
+│   ├── Dockerfile
+│   ├── visualizer.py
+│   └── templates/
+│       └── dashboard.html
+├── orchestrator/
+│   ├── configs/
+│   │   └── config.yaml
+│   ├── convert.py
+│   ├── generate.py
+│   ├── kernel.py
+│   ├── model.py
+│   ├── Dockerfile
+│   └── orchestrator.py
+├── lean_engine/
+│   ├── Dockerfile
+│   └── lean_service.py
+
+docker-compose down
+docker-compose build --no-cache
+docker-compose up
+
+
+
+# .env
+RABBITMQ_HOST=rabbitmq
+RABBITMQ_USER=guest
+RABBITMQ_PASS=guest
+BUILDER_PORT=5001
+TRAINER_PORT=5006
+TESTER_PORT=5002
+STATS_PORT=5003
+DEPLOYMENT_PORT=5004
+VISUALIZER_PORT=5005
+ORCHESTRATOR_PORT=5007
+LEAN_PORT=6000
+DATABASE_URL=postgresql://guest:guest@postgres:5432/trading_bot_db
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# docker-compose.yml
+version: '3.8'
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: always
+
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: trading_bot_db
+      POSTGRES_USER: ${RABBITMQ_USER}
+      POSTGRES_PASSWORD: ${RABBITMQ_PASS}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    restart: always
+
+  builder_bot:
+    build:
+      context: .
+      dockerfile: builder_bot/Dockerfile
+    ports:
+      - "${BUILDER_PORT}:${BUILDER_PORT}"
+    depends_on:
+      - rabbitmq
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BUILDER_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  trainer_bot:
+    build:
+      context: .
+      dockerfile: trainer_bot/Dockerfile
+    ports:
+      - "${TRAINER_PORT}:${TRAINER_PORT}"
+    depends_on:
+      - rabbitmq
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${TRAINER_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  tester_bot:
+    build:
+      context: .
+      dockerfile: tester_bot/Dockerfile
+    ports:
+      - "${TESTER_PORT}:${TESTER_PORT}"
+    depends_on:
+      - rabbitmq
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${TESTER_PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  stats_bot:
+    build:
+      context: .
+      dockerfile: stats_bot/Dockerfile
+    ports:
+      - "${STATS_PORT}:${STATS_PORT}"
+    depends_on:
+      - rabbitmq
+      - postgres
+    restart: always
+
+  packaging_deployment:
+    build:
+      context: .
+      dockerfile: packaging_deployment/Dockerfile
+    ports:
+      - "${DEPLOYMENT_PORT}:${DEPLOYMENT_PORT}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - rabbitmq
+      - stats_bot
+    restart: always
+
+  visualizer:
+    build:
+      context: .
+      dockerfile: visualizer/Dockerfile
+    ports:
+      - "${VISUALIZER_PORT}:${VISUALIZER_PORT}"
+    depends_on:
+      - stats_bot
+    restart: always
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    ports:
+      - "${ORCHESTRATOR_PORT}:${ORCHESTRATOR_PORT}"
+    depends_on:
+      - builder_bot
+      - trainer_bot
+      - tester_bot
+    restart: always
+
+  lean_engine:
+    build:
+      context: .
+      dockerfile: lean_engine/Dockerfile
+    ports:
+      - "${LEAN_PORT}:${LEAN_PORT}"
+    depends_on:
+      - redis
+    volumes:
+      - lean_data:/app/data
+    restart: always
+
+
+volumes:
+  postgres_data:
+  lean_data:
+
+# logstash.conf
+input {
+  tcp {
+    port => 5000
+    codec => json
+  }
+}
+output {
+  elasticsearch {
+    hosts => ["${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}"]
+    index => "trading-bot-logs-%{+YYYY.MM.dd}"
+  }
+}
+
+# utils.py
+import os
+import logging
+import requests
+import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
+LEAN_URL = f"http://lean_engine:{os.getenv('LEAN_PORT', 6000)}/get_history"
+logger = logging.getLogger(__name__)
+
+def fetch_historical_data(symbol="AAPL", days=90, resolution="Minute"):
+    """Fetch historical market data from the lean engine.
+    
+    Args:
+        symbol (str): Stock symbol (default: 'AAPL').
+        days (int): Number of days of data (default: 90).
+        resolution (str): Data resolution (default: 'Minute').
+    
+    Returns:
+        pd.DataFrame: Historical data or empty DataFrame on failure.
+    """
+    try:
+        response = requests.post(LEAN_URL, json={"symbol": symbol, "days": days, "resolution": resolution}, timeout=10)
+        response.raise_for_status()
+        data = response.json().get("data", [])
+        df = pd.DataFrame(data, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+        df['time'] = pd.to_datetime(df['time'])
+        return df
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch historical data: {e}")
+        return pd.DataFrame()
+
+# requirements.txt
+flask
+pika
+requests
+pandas
+stable_baselines3
+gym
+numpy
+transformers
+sqlalchemy
+redis
+lean
+quantconnect
+python-dotenv
+
+# builder_bot/Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY builder_bot/builder_bot.py .
+EXPOSE ${BUILDER_PORT}
+CMD ["python", "builder_bot.py"]
+
+# builder_bot/builder_bot.py
+import os
+import json
+import logging
+import requests
+from flask import Flask, request, jsonify
+import pika
+from utils import fetch_historical_data
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)  # Fixed: Correct Flask initialization
+PORT = int(os.getenv("BUILDER_PORT", 5001))
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+
+bot_config_count = 0
+
+credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
+channel = connection.channel()
+channel.queue_declare(queue='bot_configs', durable=True)
+
+def analyze_market(df):
+    """Calculate market volatility to determine strategy."""
+    return df['close'].pct_change().std()
+
+@app.route('/generate_bot', methods=['POST'])
+def generate_bot():
+    global bot_config_count
+    data = request.get_json()
+    if not data or 'symbol' not in data:
+        return jsonify({"error": "Missing symbol in request"}), 400
+    symbol = data['symbol']
+    df = fetch_historical_data(symbol)
+    if df.empty:
+        logger.error(f"No historical data for {symbol}")
+        return jsonify({"error": "No historical data available"}), 500
+    volatility = analyze_market(df)
+    strategy = 'statistical_arbitrage' if volatility > 0.2 else 'market_making'
+    config = {
+        'bot_id': bot_config_count + 1000,
+        'strategy': strategy,
+        'parameters': {
+            'execution_speed_ms': 10,
+            'data_sources': ['market', 'news', 'social_media'],
+            'model_type': 'reinforcement_learning' if strategy == 'statistical_arbitrage' else 'transformer'
+        }
+    }
+    channel.basic_publish(exchange='', routing_key='bot_configs', body=json.dumps(config), properties=pika.BasicProperties(delivery_mode=2))
+    bot_config_count += 1
+    logger.info(f"Generated bot config: {config}")
+    return jsonify({'status': 'generated', 'config': config}), 200
+
+@app.route('/update_config', methods=['POST'])
+def update_config():
+    new_config = request.get_json()
+    logger.info(f"Received new configuration: {new_config}")
+    return jsonify({"status": "config updated"}), 200
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy"}), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=PORT)
+
+# cleanup\Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY cleanup/cleanup.py .
+CMD ["python", "cleanup.py"]
+
+# cleanup\cleanup.py
+import os
+import time
+import logging
+import docker
+from sqlalchemy import create_engine, MetaData, Table
+from datetime import datetime, timedelta
+from dateutil.parser import isoparse
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+client = docker.from_env()
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
+metadata = MetaData()
+
+models_table = Table('models', metadata, autoload_with=engine, extend_existing=True)
+
+def cleanup_docker_containers():
+    logger.info("Cleaning up Docker containers older than 30 days...")
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    for container in client.containers.list(all=True):
+        try:
+            created_at = isoparse(container.attrs['Created'])
+            if created_at < thirty_days_ago:
+                logger.info(f"Removing container {container.name} (created on {created_at})")
+                container.remove(force=True)
+        except Exception as e:
+            logger.error(f"Error processing container {container.name}: {e}")
+
+def cleanup_old_models_in_db():
+    logger.info("Cleaning up old models from the database...")
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    with engine.connect() as conn:
+        result = conn.execute(models_table.delete().where(models_table.c.created_at < thirty_days_ago))
+        logger.info(f"Deleted {result.rowcount} old model records from the database.")
+
+def run_cleanup():
+    while True:
+        try:
+            cleanup_docker_containers()
+            cleanup_old_models_in_db()
+        except Exception as e:
+            logger.error(f"Error during cleanup: %s", e)
+        time.sleep(43200)
+
+if __name__ == "__main__":
+    run_cleanup()
+
+# lean_engine\Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
+    && pip install lean
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY lean_engine/lean_service.py .
+EXPOSE ${LEAN_PORT}
+CMD ["python", "lean_service.py"]
+
+# lean_engine\lean_service.py
+import os
+import json
+import logging
+from flask import Flask, request, jsonify
+from sqlalchemy import create_engine
+import redis
+from lean.cli import LeanCLI
+from datetime import datetime, timedelta
+from quantconnect.data import Consolidators
+from quantconnect.data.market import TradeBar
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
+redis_client = redis.Redis(host=os.getenv("REDIS_HOST"), port=int(os.getenv("REDIS_PORT")), decode_responses=True)
+DATA_DIR = "/app/data"
+os.makedirs(DATA_DIR, exist_ok=True)
+PORT = int(os.getenv("LEAN_PORT", 6000))
+
+def download_historical_data(symbol, days, resolution="Daily"):
+    """Download historical data using Lean CLI."""
+    cli = LeanCLI()
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    try:
+        cli.data_download(
+            dataset="US Equities",
+            data_type="Trade",
+            ticker=symbol.upper(),
+            resolution=resolution.lower(),
+            start=start_date.strftime("%Y%m%d"),
+            end=end_date.strftime("%Y%m%d"),
+            output=DATA_DIR
+        )
+        data_file = f"{DATA_DIR}/{symbol.lower()}/trade_{resolution.lower()}.csv"
+        if os.path.exists(data_file):
+            with open(data_file, 'r') as f:
+                return [line.strip().split(',') for line in f.readlines()]
+        return []
+    except Exception as e:
+        logger.error(f"Error downloading data for {symbol}: {e}")
+        return []
+
+def consolidate_data(raw_data, symbol, timeframe_minutes=15):
+    """Consolidate raw data into timeframes."""
+    consolidator = Consolidators.TradeBarConsolidator(timedelta(minutes=timeframe_minutes))
+    consolidated = []
+    
+    def on_consolidated(bar):
+        consolidated.append({
+            'time': bar.time.isoformat(),
+            'open': float(bar.open),
+            'high': float(bar.high),
+            'low': float(bar.low),
+            'close': float(bar.close),
+            'volume': int(bar.volume)
+        })
+    
+    consolidator.DataConsolidated += on_consolidated
+    for row in raw_data[1:]:  # Skip header
+        try:
+            time = datetime.strptime(row[0], '%Y%m%d %H:%M:%S')
+            bar = TradeBar(time, symbol=symbol, open=float(row[1]), high=float(row[2]), 
+                          low=float(row[3]), close=float(row[4]), volume=int(row[5]))
+            consolidator.update(bar)
+        except Exception as e:
+            logger.error(f"Error consolidating row {row}: {e}")
+    return consolidated
+
+def get_historical_data(symbol, days, resolution="Daily"):
+    """Fetch or retrieve cached historical data."""
+    cache_key = f"{symbol}_{days}_{resolution}"
+    cached_data = redis_client.get(cache_key)
+    if cached_data:
+        return json.loads(cached_data)
+    data = download_historical_data(symbol, days, resolution)
+    redis_client.set(cache_key, json.dumps(data), ex=3600)
+    return data
+
+@app.route('/get_history', methods=['POST'])
+def get_history():
+    payload = request.get_json()
+    symbol = payload.get('symbol', 'AAPL')
+    days = payload.get('days', 30)
+    resolution = payload.get('resolution', 'Daily')
+    consolidate = payload.get('consolidate', False)
+    timeframe = payload.get('timeframe_minutes', 15)
+    data = get_historical_data(symbol, days, resolution)
+    if consolidate and resolution.lower() == 'minute':
+        data = consolidate_data(data, symbol, timeframe)
+    return jsonify({'symbol': symbol, 'data': data})
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=PORT)
+
+# orchestrator/configs/config.yaml
+model:
+  name: distilgpt2
+  max_length: 100
+server:
+  host: "0.0.0.0"
+  port: ${ORCHESTRATOR_PORT}
+kernel:
+  interval: 60
+
+# orchestrator\convert.py
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+def convert_model_to_onnx(model_name="distilgpt2", output_path="orchestrator_model.onnx"):
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model.eval()
+    dummy_input = tokenizer.encode("Test input for ONNX conversion", return_tensors="pt")
+    torch.onnx.export(
+        model,
+        dummy_input,
+        output_path,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}}
+    )
+    print(f"Model converted and saved to {output_path}")
+
+if __name__ == "__main__":
+    convert_model_to_onnx()
+
+# orchestrator/Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY orchestrator/ .
+EXPOSE ${ORCHESTRATOR_PORT}
+CMD ["python", "orchestrator.py"]
+
+# orchestrator\generate.py
+import sys
+import logging
+from model import ImprovementModel
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def generate_text(prompt, model_name="distilgpt2", max_length=100):
+    model = ImprovementModel(model_name=model_name, max_length=max_length)
+    outputs = model.generator(prompt, num_return_sequences=1)
+    generated_text = outputs[0]['generated_text']
+    suggestion = generated_text.split("|EndCoT|")[-1].strip() if "|EndCoT|" in generated_text else generated_text
+    return suggestion
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python generate.py '<prompt>'")
+        sys.exit(1)
+    prompt = sys.argv[1]
+    result = generate_text(prompt)
+    logger.info("Generated suggestion: %s", result)
+    print(result)
+
+# orchestrator\kernel.py
+import time
+import logging
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+ORCHESTRATOR_PORT = os.getenv("ORCHESTRATOR_PORT", 5007)
+
+def run_kernel(improve_endpoint=f"http://localhost:{ORCHESTRATOR_PORT}/improve", interval=60):
+    while True:
+        logger.info("Kernel: Collecting feedback from subservices...")
+        feedback = {
+            "service": "trainer_bot",
+            "feedback": "Training loss plateauing."
+        }
+        try:
+            response = requests.post(improve_endpoint, json=feedback, timeout=5)
+            if response.status_code == 200:
+                improvements = response.json().get("improvements", "")
+                logger.info("Kernel: Received improvements: %s", improvements)
+            else:
+                logger.warning("Kernel: Non-200 status code %s", response.status_code)
+        except Exception as e:
+            logger.error("Kernel: Error contacting orchestrator: %s", e)
+        time.sleep(interval)
+
+if __name__ == "__main__":
+    run_kernel()
+
+# orchestrator\model.py
+import logging
+from transformers import pipeline
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class ImprovementModel:
+    """Model for generating improvement suggestions using a transformer."""
+    def __init__(self, model_name="distilgpt2", max_length=100):
+        self.generator = pipeline("text-generation", model=model_name, max_length=max_length)
+        logger.info("ImprovementModel: Loaded model %s with max_length=%d", model_name, max_length)
+
+    def suggest_improvements(self, service, prompt):
+        """Generate improvement suggestions based on a prompt."""
+        suggestions = self.generate_text(prompt, num_return_sequences=1)
+        generated_text = suggestions[0]['generated_text']
+        return generated_text.split("|EndCoT|")[-1].strip() if "|EndCoT|" in generated_text else generated_text
+
+    def generate_text(self, prompt, num_return_sequences=1):
+        """Generate text using the transformer pipeline."""
+        return self.generator(prompt, num_return_sequences=num_return_sequences)
+
+# orchestrator/orchestrator.py (updated excerpt)
+import os
+import logging
+from flask import Flask, request, jsonify
+from model import ImprovementModel
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+try:
+    orchestrator_model = ImprovementModel(model_name="distilgpt2", max_length=100)
+    logger.info("Loaded orchestrator model.")
+except Exception as e:
+    logger.error("Failed to load orchestrator model: %s", e)
+    orchestrator_model = None
+
+PORT = int(os.getenv("ORCHESTRATOR_PORT", 5007))
+BUILDER_URL = f"http://builder_bot:{os.getenv('BUILDER_PORT', 5001)}/update_config"
+TRAINER_URL = f"http://trainer_bot:{os.getenv('TRAINER_PORT', 5006)}/update_config"
+TESTER_URL = f"http://tester_bot:{os.getenv('TESTER_PORT', 5002)}/update_config"
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "OK"}), 200
+
+@app.route("/improve", methods=["POST"])
+def improve():
+    try:
+        data = request.get_json()
+        service = data.get("service", "unknown")
+        feedback = data.get("feedback", "No feedback provided.")
+        prompt = (f"Service: {service}\nFeedback: {feedback}\n"
+                  f"|CoT| Analyze feedback and propose improvements. |EndCoT|\nFinal Improvement Suggestions:")
+        improvements = orchestrator_model.suggest_improvements(service, prompt) if orchestrator_model else "Model unavailable."
+        
+        if service == "builder_bot":
+            requests.post(BUILDER_URL, json={"improvements": improvements}, timeout=5)
+        elif service == "trainer_bot":
+            requests.post(TRAINER_URL, json={"improvements": improvements}, timeout=5)
+        elif service == "tester_bot":
+            requests.post(TESTER_URL, json={"improvements": improvements}, timeout=5)
+        
+        return jsonify({"service": service, "improvements": improvements}), 200
+    except Exception as e:
+        logger.error("Error in /improve endpoint: %s", e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
+
+# packaging_deployment/Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY packaging_deployment/packaging_deployment.py .
+EXPOSE ${DEPLOYMENT_PORT}
+CMD ["python", "packaging_deployment.py"]
+
+# packaging_deployment/packaging_deployment.py
+import os
+import json
+import logging
+from flask import Flask, request, jsonify
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+PORT = int(os.getenv("DEPLOYMENT_PORT", 5004))
+STATS_URL = f"http://stats_bot:{os.getenv('STATS_PORT', 5003)}/feedback"
+
+@app.route('/deploy_bot', methods=['POST'])
+def deploy_bot():
+    config = request.get_json()
+    response = requests.get(STATS_URL)
+    stats = response.json().get('stats', {}).get('aggregated_results', [])
+    bot_stats = next((r for r in stats if r['bot_id'] == config['bot_id']), None)
+    
+    if bot_stats and bot_stats['sharpe_ratio'] > 1.0:  # Threshold for deployment
+        return jsonify({'status': 'deployed', 'bot_id': config['bot_id']}), 200
+    return jsonify({'error': 'Performance below threshold'}), 403
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=PORT)
+
+# stats_bot/Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY stats_bot/stats_bot.py .
+EXPOSE ${STATS_PORT}
+CMD ["python", "stats_bot.py"]
+
+# stats_bot/stats_bot.py
+import os
+import json
+import logging
+import threading
+from collections import deque
+from flask import Flask, jsonify
+import pika
+from sqlalchemy import create_engine, Column, Integer, Float, MetaData, Table
+from tenacity import retry, stop_after_attempt, wait_exponential
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL)
+metadata = MetaData()
+
+test_results_table = Table('test_results', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('bot_id', Integer),
+    Column('sharpe_ratio', Float),
+    autoload_with=engine, extend_existing=True
+)
+
+metadata.create_all(engine)
+aggregated_results = deque(maxlen=100)
+
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+PORT = int(os.getenv("STATS_PORT", 5003))
+
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
+def get_rabbitmq_connection():
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+    return pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
+
+try:
+    connection = get_rabbitmq_connection()
+    channel = connection.channel()
+    channel.queue_declare(queue='test_results', durable=True)
+except Exception as e:
+    logger.error("Failed to connect to RabbitMQ: %s", e)
+    raise
+
+def callback(ch, method, properties, body):
+    try:
+        result = json.loads(body)
+        aggregated_results.append(result)
+        with engine.begin() as conn:
+            conn.execute(test_results_table.insert().values(bot_id=result.get('bot_id'), sharpe_ratio=result.get('sharpe_ratio')))
+        logger.info("Persisted test result: %s", result)
+    except Exception as e:
+        logger.error("Error processing test result: %s", e, exc_info=True)
+
+channel.basic_consume(queue='test_results', on_message_callback=callback, auto_ack=True)
+
+def start_consuming():
+    try:
+        channel.start_consuming()
+    except Exception as e:
+        logger.error("Error in RabbitMQ consuming loop: %s", e, exc_info=True)
+
+threading.Thread(target=start_consuming, daemon=True).start()
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "OK", "total_results": len(aggregated_results)}), 200
+
+@app.route('/feedback', methods=['GET'])
+def stats_feedback():
+    stats = {
+        'total_results': len(aggregated_results),
+        'last_result': aggregated_results[-1] if aggregated_results else {},
+        'aggregated_results': list(aggregated_results)  # Expose all results for deployment check
+    }
+    return jsonify({'status': 'ok', 'stats': stats}), 200
+
+@app.route('/update_config', methods=['POST'])
+def stats_update():
+    try:
+        new_config = request.get_json()
+        logger.info("Received stats bot config update: %s", new_config)
+        global aggregated_results
+        aggregated_results = deque(aggregated_results, maxlen=new_config.get("max_results", 100))
+        return jsonify({'status': 'stats config updated'}), 200
+    except Exception as e:
+        logger.error("Error updating stats config: %s", e, exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=PORT)
+
+# tester_bot/Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY tester_bot/tester_bot.py .
+EXPOSE ${TESTER_PORT}
+CMD ["python", "tester_bot.py"]
+
+# tester_bot/tester_bot.py
+import os
+import json
+import logging
+import requests
+from flask import Flask, request, jsonify
+import pika
+from stable_baselines3 import PPO
+import numpy as np
+from utils import fetch_historical_data
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+PORT = int(os.getenv("TESTER_PORT", 5002))
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+
+credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
+channel = connection.channel()
+channel.queue_declare(queue='test_results', durable=True)
+
+@app.route('/test_bot', methods=['POST'])
+def test_bot():
+    config = request.get_json()
+    if not config or 'bot_id' not in config:
+        return jsonify({"error": "Missing bot_id"}), 400
+    model_path = f"model_{config['bot_id']}.zip"  # Standardized with .zip
+    if not os.path.exists(model_path):
+        logger.error(f"Model {model_path} not found")
+        return jsonify({"error": f"Model {model_path} not found"}), 404
+    model = PPO.load(model_path)
+    df = fetch_historical_data()
+    if df.empty:
+        logger.error("No historical data available for testing")
+        return jsonify({'error': 'No data'}), 500
+    obs = df.iloc[0].values
+    total_reward = 0
+    for i in range(len(df) - 1):
+        action, _ = model.predict(obs)
+        total_reward += action[0] * df['close'].pct_change().iloc[i + 1]
+        obs = df.iloc[i + 1].values
+    result = {
+        'bot_id': config['bot_id'],
+        'total_reward': float(total_reward),
+        'sharpe_ratio': float(total_reward / df['close'].pct_change().std() * np.sqrt(252))
+    }
+    channel.basic_publish(exchange='', routing_key='test_results', body=json.dumps(result), properties=pika.BasicProperties(delivery_mode=2))
+    logger.info(f"Testing completed for bot_id: {config['bot_id']}")
+    return jsonify(result), 200
+
+@app.route('/update_config', methods=['POST'])
+def update_config():
+    new_config = request.get_json()
+    logger.info(f"Received new configuration: {new_config}")
+    return jsonify({"status": "config updated"}), 200
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy"}), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=PORT)
+
+# trainer_bot/Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY trainer_bot/trainer_bot.py .
+EXPOSE ${TRAINER_PORT}
+CMD ["python", "trainer_bot.py"]
+
+# trainer_bot\trainer_bot.py
+import os
+import json
+import logging
+import requests
+from flask import Flask, request, jsonify
+import pika
+from stable_baselines3 import PPO
+from gym import Env
+from gym.spaces import Box
+import numpy as np
+from utils import fetch_historical_data
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+PORT = int(os.getenv("TRAINER_PORT", 5006))
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+
+class TradingEnv(Env):
+    """Custom Gym environment for trading."""
+    def __init__(self, df):
+        super().__init__()
+        self.df = df
+        self.action_space = Box(low=-1, high=1, shape=(2,), dtype=np.float32)
+        self.observation_space = Box(low=0, high=np.inf, shape=(6,), dtype=np.float32)
+        self.current_step = 0
+
+    def reset(self):
+        self.current_step = 0
+        return self.df.iloc[self.current_step].values
+
+    def step(self, action):
+        self.current_step += 1
+        reward = action[0] * self.df['close'].pct_change().iloc[self.current_step]
+        done = self.current_step >= len(self.df) - 1
+        obs = self.df.iloc[self.current_step].values if not done else np.zeros(6)
+        return obs, reward, done, {}
+
+credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials))
+channel = connection.channel()
+channel.queue_declare(queue='training_results', durable=True)
+
+@app.route('/train', methods=['POST'])
+def train():
+    config = request.get_json()
+    if not config or 'bot_id' not in config:
+        return jsonify({"error": "Missing bot_id"}), 400
+    df = fetch_historical_data()
+    if df.empty:
+        logger.error("No historical data available for training")
+        return jsonify({'error': 'No data'}), 500
+    env = TradingEnv(df)
+    model = PPO("MlpPolicy", env, verbose=0)
+    model.learn(total_timesteps=10000)
+    model_path = f"model_{config['bot_id']}.zip"  # Standardized with .zip
+    model.save(model_path)
+    result = {
+        'bot_id': config['bot_id'],
+        'model_path': model_path,
+        'status': 'trained'
+    }
+    channel.basic_publish(exchange='', routing_key='training_results', body=json.dumps(result), properties=pika.BasicProperties(delivery_mode=2))
+    logger.info(f"Training completed for bot_id: {config['bot_id']}")
+    return jsonify(result), 200
+
+@app.route('/update_config', methods=['POST'])
+def update_config():
+    new_config = request.get_json()
+    logger.info(f"Received new configuration: {new_config}")
+    return jsonify({"status": "config updated"}), 200
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy"}), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=PORT)
+
+# visualizer\Dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt .
+RUN pip install --no-cache-dir --timeout 1000 -r requirements.txt
+COPY visualizer/visualizer.py .
+COPY visualizer/templates/ ./templates/
+EXPOSE ${VISUALIZER_PORT}
+CMD ["python", "visualizer.py"]
+
+# visualizer\visualizer.py
+import os
+import logging
+import requests
+from flask import Flask, render_template, request, redirect, url_for, flash
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY")
+
+STATS_URL = f"http://stats_bot:{os.getenv('STATS_PORT', 5003)}/feedback"
+DEPLOYMENT_URL = f"http://packaging_deployment:{os.getenv('DEPLOYMENT_PORT', 5004)}/deploy_bot"
+PORT = int(os.getenv("VISUALIZER_PORT", 5005))
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "OK"}), 200
+
+@app.route("/dashboard")
+def dashboard():
+    try:
+        response = requests.get(STATS_URL, timeout=5)
+        stats = response.json().get("stats", {}) if response.status_code == 200 else {}
+    except Exception as e:
+        logger.error("Error fetching stats: %s", e)
+        stats = {}
+        flash("Error fetching stats.", "error")
+    return render_template("dashboard.html", stats=stats)
+
+@app.route("/deploy_live", methods=["POST"])
+def deploy_live():
+    bot_id = request.form.get("bot_id")
+    risk = request.form.get("risk", "medium")
+    live_mode = request.form.get("live_mode", "false").lower() == "true"
+    bot_config = {
+        "bot_id": int(bot_id) if bot_id else None,
+        "risk": risk,
+        "strategy": "mean_reversion",
+        "parameters": {"entry_threshold": 2.0, "exit_threshold": 1.0, "stop_loss": 0.03, "position_size": 0.2},
+        "live_mode": live_mode
+    }
+    try:
+        response = requests.post(DEPLOYMENT_URL, json=bot_config, timeout=5)
+        if response.status_code == 200:
+            flash("Live deployment initiated successfully.", "success")
+        else:
+            flash(f"Live deployment failed with status code: {response.status_code}", "error")
+    except Exception as e:
+        logger.error("Error initiating live deployment: %s", e)
+        flash("Error initiating live deployment.", "error")
+    return redirect(url_for("dashboard"))
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
+
+<!-- visualizer\templates\dashboard.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trading Bot Dashboard</title>
+</head>
+<body>
+    <h1>Trading Bot Dashboard</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <p class="{{ category }}">{{ message }}</p>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    <h2>Stats</h2>
+    <pre>{{ stats | tojson }}</pre>
+    <h2>Deploy Live Bot</h2>
+    <form method="post" action="{{ url_for('deploy_live') }}">
+        <label>Bot ID: <input type="number" name="bot_id"></label><br>
+        <label>Risk Level:
+            <select name="risk">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+            </select>
+        </label><br>
+        <label>Live Mode: <input type="checkbox" name="live_mode" value="true"></label><br>
+        <button type="submit">Deploy</button>
+    </form>
+</body>
+</html>

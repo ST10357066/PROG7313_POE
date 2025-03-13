@@ -1,0 +1,217 @@
+# docker-compose.yml
+# version: '3.8'
+
+services:
+  # RabbitMQ service with management UI
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"  # AMQP port
+      - "15672:15672"  # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  # PostgreSQL database service
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: trading_bot_db
+      POSTGRES_USER: ${RABBITMQ_USER}
+      POSTGRES_PASSWORD: ${RABBITMQ_PASS}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${RABBITMQ_USER}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  # Redis service
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  # Builder Bot service
+  builder_bot:
+    build:
+      context: .
+      dockerfile: builder_bot/Dockerfile
+    ports:
+      - "${BUILDER_PORT}:${BUILDER_PORT}"
+    environment:
+      - BUILDER_PORT=${BUILDER_PORT}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+      - DATABASE_URL=postgresql://${RABBITMQ_USER}:${RABBITMQ_PASS}@postgres:5432/trading_bot_db
+    depends_on:
+      - rabbitmq
+      - postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:${BUILDER_PORT}/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  # Trainer Bot service
+  trainer_bot:
+    build:
+      context: .
+      dockerfile: trainer_bot/Dockerfile
+    ports:
+      - "${TRAINER_PORT}:${TRAINER_PORT}"
+    environment:
+      - TRAINER_PORT=${TRAINER_PORT}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+      - DATABASE_URL=postgresql://${RABBITMQ_USER}:${RABBITMQ_PASS}@postgres:5432/trading_bot_db
+    depends_on:
+      - rabbitmq
+      - postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:${TRAINER_PORT}/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  # Tester Bot service
+  tester_bot:
+    build:
+      context: .
+      dockerfile: tester_bot/Dockerfile
+    ports:
+      - "${TESTER_PORT}:${TESTER_PORT}"
+    environment:
+      - TESTER_PORT=${TESTER_PORT}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+    depends_on:
+      - rabbitmq
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:${TESTER_PORT}/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
+  # Stats Bot service
+  stats_bot:
+    build:
+      context: .
+      dockerfile: stats_bot/Dockerfile
+    ports:
+      - "${STATS_PORT}:${STATS_PORT}"
+    environment:
+      - STATS_PORT=${STATS_PORT}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+      - DATABASE_URL=postgresql://${RABBITMQ_USER}:${RABBITMQ_PASS}@postgres:5432/trading_bot_db
+    depends_on:
+      - rabbitmq
+      - postgres
+    restart: always
+
+  # Packaging and Deployment service
+  packaging_deployment:
+    build:
+      context: .
+      dockerfile: packaging_deployment/Dockerfile
+    ports:
+      - "${DEPLOYMENT_PORT}:${DEPLOYMENT_PORT}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Access to Docker daemon
+    environment:
+      - DEPLOYMENT_PORT=${DEPLOYMENT_PORT}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+    depends_on:
+      - rabbitmq
+      - stats_bot
+    restart: always
+
+  # Cleanup service (background task, no port exposed)
+  cleanup:
+    build:
+      context: .
+      dockerfile: cleanup/Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://${RABBITMQ_USER}:${RABBITMQ_PASS}@postgres:5432/trading_bot_db
+    depends_on:
+      - postgres
+    restart: always
+
+  # Visualizer service
+  visualizer:
+    build:
+      context: .
+      dockerfile: visualizer/Dockerfile
+    ports:
+      - "${VISUALIZER_PORT}:${VISUALIZER_PORT}"
+    environment:
+      - VISUALIZER_PORT=${VISUALIZER_PORT}
+    depends_on:
+      - stats_bot
+    restart: always
+
+  # Orchestrator service
+  orchestrator:
+    build:
+      context: .
+      dockerfile: orchestrator/Dockerfile
+    ports:
+      - "${ORCHESTRATOR_PORT}:${ORCHESTRATOR_PORT}"
+    environment:
+      - ORCHESTRATOR_PORT=${ORCHESTRATOR_PORT}
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASS=${RABBITMQ_PASS}
+    depends_on:
+      - builder_bot
+      - trainer_bot
+      - tester_bot
+    restart: always
+
+  # Lean Engine service
+  lean_engine:
+    build:
+      context: .
+      dockerfile: lean_engine/Dockerfile
+    ports:
+      - "${LEAN_PORT}:${LEAN_PORT}"
+    environment:
+      - LEAN_PORT=${LEAN_PORT}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - lean_data:/app/data
+    depends_on:
+      - redis
+    restart: always
+
+# Define volumes for data persistence
+volumes:
+  postgres_data:
+  lean_data:
