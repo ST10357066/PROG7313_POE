@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#CEF5D6"
+    tools:context=".auth.AuthProfileActivity">
+
+    <!-- Notification Icon (top-right) -->
+<ImageView
+android:id="@+id/ivNotification"
+android:layout_width="48dp"
+android:layout_height="48dp"
+android:layout_marginTop="16dp"
+android:layout_marginEnd="16dp"
+android:contentDescription="@string/notifications"
+android:src="@drawable/ic_notifications"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Title: Edit My Profile (top-left) -->
+<TextView
+android:id="@+id/tvEditProfile"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:layout_marginStart="16dp"
+android:layout_marginTop="16dp"
+android:text="Edit My Profile"
+android:textColor="#263238"
+android:textSize="20sp"
+android:textStyle="bold"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Circular Profile Photo -->
+<ImageView
+android:id="@+id/ivProfilePhoto"
+android:layout_width="120dp"
+android:layout_height="120dp"
+android:layout_marginTop="40dp"
+android:contentDescription="@string/profile_photo"
+android:scaleType="centerCrop"
+android:src="@drawable/ic_profile_placeholder"
+android:background="@drawable/circle_background"
+
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toBottomOf="@id/tvEditProfile" />
+
+    <!-- Camera Icon Overlay (for changing profile picture) -->
+<ImageView
+android:id="@+id/ivCameraIcon"
+android:layout_width="40dp"
+android:layout_height="40dp"
+android:layout_marginEnd="8dp"
+android:layout_marginBottom="8dp"
+android:contentDescription="@string/change_profile_picture"
+android:src="@drawable/ic_camera"
+    app:layout_constraintBottom_toBottomOf="@id/ivProfilePhoto"
+    app:layout_constraintEnd_toEndOf="@id/ivProfilePhoto"
+    app:tint="#00C853" />
+
+    <!-- Name -->
+<TextView
+android:id="@+id/tvUserName"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:layout_marginTop="16dp"
+android:text="John Smith"
+android:textColor="#263238"
+android:textSize="18sp"
+android:textStyle="bold"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/ivProfilePhoto" />
+
+    <!-- User ID -->
+<TextView
+android:id="@+id/tvUserId"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:layout_marginTop="4dp"
+android:text="ID: 25030024"
+android:textColor="#757575"
+android:textSize="14sp"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/tvUserName" />
+
+    <!-- "Account Settings" label -->
+<TextView
+android:id="@+id/tvAccountSettings"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:layout_marginTop="24dp"
+android:text="Account Settings"
+android:textColor="#263238"
+android:textSize="16sp"
+android:textStyle="bold"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/tvUserId" />
+
+    <!-- Username Field -->
+<com.google.android.material.textfield.TextInputLayout
+android:id="@+id/tilProfileUsername"
+style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:layout_marginStart="32dp"
+android:layout_marginEnd="32dp"
+android:layout_marginTop="16dp"
+android:hint="Username"
+app:boxBackgroundColor="#ACEBC0"
+    app:boxCornerRadiusTopStart="12dp"
+    app:boxCornerRadiusTopEnd="12dp"
+    app:boxCornerRadiusBottomStart="12dp"
+    app:boxCornerRadiusBottomEnd="12dp"
+    app:boxStrokeWidth="0dp"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toBottomOf="@id/tvAccountSettings">
+
+<com.google.android.material.textfield.TextInputEditText
+android:id="@+id/etProfileUsername"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:inputType="text"
+android:text="John Smith"
+android:textColor="@android:color/black" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Phone Field -->
+<com.google.android.material.textfield.TextInputLayout
+android:id="@+id/tilProfilePhone"
+style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:layout_marginStart="32dp"
+android:layout_marginEnd="32dp"
+android:layout_marginTop="16dp"
+android:hint="Phone"
+app:boxBackgroundColor="#ACEBC0"
+app:boxCornerRadiusTopStart="12dp"
+app:boxCornerRadiusTopEnd="12dp"
+app:boxCornerRadiusBottomStart="12dp"
+app:boxCornerRadiusBottomEnd="12dp"
+app:boxStrokeWidth="0dp"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/tilProfileUsername">
+
+<com.google.android.material.textfield.TextInputEditText
+    android:id="@+id/etProfilePhone"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:hint="+44 555 5555 55"
+    android:inputType="phone"
+    android:textColor="@android:color/black" />
+</com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Email Field -->
+<com.google.android.material.textfield.TextInputLayout
+android:id="@+id/tilProfileEmail"
+style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:layout_marginStart="32dp"
+android:layout_marginEnd="32dp"
+android:layout_marginTop="16dp"
+android:hint="Email Address"
+app:boxBackgroundColor="#ACEBC0"
+app:boxCornerRadiusTopStart="12dp"
+app:boxCornerRadiusTopEnd="12dp"
+app:boxCornerRadiusBottomStart="12dp"
+app:boxCornerRadiusBottomEnd="12dp"
+app:boxStrokeWidth="0dp"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/tilProfilePhone">
+
+<com.google.android.material.textfield.TextInputEditText
+    android:id="@+id/etProfileEmail"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:hint="example@example.com"
+    android:inputType="textEmailAddress"
+    android:textColor="@android:color/black" />
+</com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Push Notifications Switch -->
+<LinearLayout
+android:id="@+id/layoutNotifications"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:layout_marginStart="32dp"
+android:layout_marginEnd="32dp"
+android:layout_marginTop="16dp"
+android:orientation="horizontal"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/tilProfileEmail">
+
+<TextView
+    android:id="@+id/tvPushNotifications"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="Push Notifications"
+    android:textColor="#263238"
+    android:textSize="16sp"
+    android:layout_gravity="center_vertical" />
+
+<com.google.android.material.switchmaterial.SwitchMaterial
+    android:id="@+id/switchPushNotifications"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:checked="true"
+    android:layout_weight="1"
+    android:layout_gravity="right|center_vertical" />
+</LinearLayout>
+
+    <!-- Dark Theme Switch -->
+<LinearLayout
+android:id="@+id/layoutDarkTheme"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:layout_marginStart="32dp"
+android:layout_marginEnd="32dp"
+android:layout_marginTop="16dp"
+android:orientation="horizontal"
+app:layout_constraintEnd_toEndOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintTop_toBottomOf="@id/layoutNotifications">
+
+<TextView
+    android:id="@+id/tvDarkTheme"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="Turn Dark Theme"
+    android:textColor="#263238"
+    android:textSize="16sp"
+    android:layout_gravity="center_vertical" />
+
+<com.google.android.material.switchmaterial.SwitchMaterial
+    android:id="@+id/switchDarkTheme"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:checked="false"
+    android:layout_weight="1"
+    android:layout_gravity="right|center_vertical" />
+</LinearLayout>
+
+    <!-- Update Profile Button (Darker Green) -->
+<com.google.android.material.button.MaterialButton
+android:id="@+id/btnUpdateProfile"
+android:layout_width="0dp"
+android:layout_height="50dp"
+android:layout_marginStart="32dp"
+android:layout_marginEnd="32dp"
+android:layout_marginTop="24dp"
+android:backgroundTint="#00C853"
+    android:text="Update Profile"
+    android:textAllCaps="false"
+    android:textColor="#FFFFFF"
+    app:cornerRadius="25dp"
+    app:layout_constraintEnd_toEndOf="parent"
+    app:layout_constraintHorizontal_bias="0.5"
+    app:layout_constraintStart_toStartOf="parent"
+    app:layout_constraintTop_toBottomOf="@id/layoutDarkTheme" />
+
+    <!-- Bottom Navigation -->
+<com.google.android.material.bottomnavigation.BottomNavigationView
+android:id="@+id/bottomNavigationView"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:background="#002117"
+app:itemIconTint="#707974"
+app:itemTextColor="#707974"
+app:menu="@menu/bottom_navigation_menu"
+app:layout_constraintBottom_toBottomOf="parent"
+app:layout_constraintStart_toStartOf="parent"
+app:layout_constraintEnd_toEndOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
